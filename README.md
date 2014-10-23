@@ -21,6 +21,7 @@ key, it no longer allows password authentication, even in Winbox. So do
 not do this with your "admin" user; create another user for this purpose
 instead. I use "root" for this.
 
+```
 # On your workstation:
 scp ~/id_dsa.pub admin@10.0.0.1:/
 
@@ -28,3 +29,4 @@ scp ~/id_dsa.pub admin@10.0.0.1:/
 /user
 user add name=root group=full password=xxxxxxxx
 user ssh-keys import user=root public-key-file=id_dsa.pub
+```
