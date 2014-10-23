@@ -1,0 +1,98 @@
+#!/bin/bash
+# 2008-08-19 tyler
+AUTHOR="tyler@tolaris.com"
+NAME=$(basename $0)
+VERSION="1.1.2"
+DESC="Back up a Mikrotik router to local files in binary (ready to restore) \nand text (incomplete but readable) formats."
+
+# defaults
+USER="root"
+FILE_SUFFIX_EXPORT="rsc"
+CMD_EXPORT='/ export'
+FILE_SUFFIX_BACKUP="backup"
+CMD_BACKUP='/system backup save'
+
+die() {
+	OUTPUT="$@"
+	[ -n "$OUTPUT" ] && printf -- "$OUTPUT\n" >&2
+	exit 1
+}
+
+CheckPrerequisites() {
+	MISSING=""
+	for i in "$@" ; do
+		type "$i" > /dev/null 2>&1 || MISSING="$i $MISSING"
+	done
+	if [ -n "$MISSING" ] ; then
+		die "Please install: $MISSING"
+	fi
+}
+
+VersionAndExit() {
+	printf "$NAME version $VERSION, by $AUTHOR\n"
+	exit 0
+}
+
+UsageAndExit() {
+	if [ -n "$2" ] ; then printf "$2\n\n" ; fi
+	printf "\
+Usage: $NAME [options] host [host] [...]\n\
+\n$DESC\n\n\
+Arguments:\n\
+  host     the Mikrotik device to back up\n\
+Options:\n\
+  -r       store recursively in folders named for the device\n\
+  -u USER  login user (default $USER, must have full access)\n\
+  -v       be verbose\n\
+  -h       show this help\n\
+  -V       display version\n\
+"
+	exit $1
+}
+
+while getopts ":hVu:vr" options; do
+   case $options in
+      r ) FOLDERS="yes";;
+      u ) USER="$OPTARG";;
+      v ) VERBOSE="yes";;
+      h ) UsageAndExit 0;;
+      V ) VersionAndExit 0;;
+      * ) UsageAndExit 1 "Option unknown: -$OPTARG";;
+   esac
+done
+
+# Clear $@ of switches
+shift $(($OPTIND - 1))
+HOSTLIST=$@
+
+if [ -z "$HOSTLIST" ] ; then
+	UsageAndExit 1 "Please specify at least one host."
+fi
+
+ROOT_DIR=$(pwd)
+# Now loop on target list, backing up servers
+for host in $HOSTLIST ; do
+	# Mikrotik's export command appends the file suffix automatically
+	FILENAME_SHORT=${host}-$(date +%Y%m%d-%H%M%S)
+	FILENAME_EXPORT=${FILENAME_SHORT}.${FILE_SUFFIX_EXPORT}
+	FILENAME_BACKUP=${FILENAME_SHORT}.${FILE_SUFFIX_BACKUP}
+
+	if [ -n "$FOLDERS" ] ; then
+		if [ ! -d "${ROOT_DIR}/${host}" ] ; then
+			mkdir "${ROOT_DIR}/${host}"
+		fi
+		cd "${ROOT_DIR}/${host}"
+		printf "Backing up $host to ${host}/$FILENAME_SHORT ...\n"
+	else
+		printf "Backing up $host to $FILENAME_SHORT ...\n"
+	fi
+
+	[ -n "$VERBOSE" ] && echo ssh ${USER}@${host} \"${CMD_EXPORT} file=${FILENAME_SHORT} \; ${CMD_BACKUP} name=${FILENAME_SHORT}\"
+	ssh ${USER}@${host} "${CMD_EXPORT} file=${FILENAME_SHORT} ; ${CMD_BACKUP} name=${FILENAME_SHORT}"
+	if [ -n "$VERBOSE" ] ; then
+		echo "echo -e \"get ${FILENAME_EXPORT}\nget ${FILENAME_BACKUP}\nls ${FILENAME_SHORT}*\" | sftp -b - ${USER}@${host}"
+		echo -e "get ${FILENAME_EXPORT}\nget ${FILENAME_BACKUP}\nrm ${FILENAME_EXPORT}\nrm ${FILENAME_BACKUP}" | sftp -b - ${USER}@${host}
+	else
+		echo -e "get ${FILENAME_EXPORT}\nget ${FILENAME_BACKUP}\nrm ${FILENAME_EXPORT}\nrm ${FILENAME_BACKUP}" | sftp -b - ${USER}@${host} > /dev/null
+	fi
+done
